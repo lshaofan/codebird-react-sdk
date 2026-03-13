@@ -1,0 +1,58 @@
+{
+  "name": "@codebird/react",
+  "version": "0.2.0",
+  "private": false,
+  "description": "React SDK for Code Bird Cloud SPA authentication and organization-aware access tokens.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lshaofan/codebird-react-sdk.git"
+  },
+  "homepage": "https://github.com/lshaofan/codebird-react-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/lshaofan/codebird-react-sdk/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "dev": "tsup --watch",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "oidc-client-ts": "^3.1.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.3.5",
+    "typescript": "~5.7.0",
+    "vitest": "^3.0.7"
+  }
+}
