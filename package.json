@@ -1,6 +1,6 @@
 {
   "name": "@codebird/react",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "description": "React SDK for Code Bird Cloud SPA authentication and organization-aware access tokens.",
   "license": "MIT",

@@ -41,6 +41,12 @@ function createDefaultManager(config: CodeBirdProviderProps): CodeBirdManager {
     client_id: config.appId,
     redirect_uri: config.redirectUri,
     post_logout_redirect_uri: config.postLogoutRedirectUri,
+    // oidc-client-ts only serializes client_id into the token request body
+    // when an explicit client_authentication mode is configured.
+    // For public SPA clients we still need client_id during code exchange,
+    // but we must not require a client secret, so client_secret_post is the
+    // most compatible option here.
+    client_authentication: 'client_secret_post',
     response_type: 'code',
     scope: (config.scopes ?? DEFAULT_SCOPES).join(' '),
     resource: config.defaultResource,

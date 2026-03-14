@@ -117,6 +117,25 @@ describe('CodeBirdProvider storage wiring', () => {
     expect(settings.automaticSilentRenew).toBe(false);
   });
 
+  it('uses client_secret_post so public SPA token exchange still submits client_id', async () => {
+    render(
+      <CodeBirdProvider
+        endpoint="https://auth.example.com"
+        appId="app_1"
+        redirectUri="http://localhost:5173/callback"
+        postLogoutRedirectUri="http://localhost:5173"
+        storage="sessionStorage"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(userManagerMock).toHaveBeenCalled();
+    });
+
+    const settings = userManagerMock.mock.calls.at(-1)?.[0];
+    expect(settings.client_authentication).toBe('client_secret_post');
+  });
+
   it('allows explicitly enabling automaticSilentRenew', async () => {
     render(
       <CodeBirdProvider
