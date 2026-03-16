@@ -3,9 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { CodeBirdContext } from '../context/codebird-context';
 import type {
+  CodeBirdAccountCenterTarget,
   CodeBirdAuthValue,
   CodeBirdManager,
   CodeBirdManagerUser,
+  CodeBirdOpenAccountCenterOptions,
   CodeBirdProviderProps,
   CodeBirdSignInOptions,
   OrganizationContext,
@@ -16,6 +18,7 @@ import { tokenCanBeUsed } from '../utils/jwt';
 import { requestToken } from '../utils/token';
 
 const DEFAULT_SCOPES = ['openid', 'profile', 'email', 'offline_access'];
+const DEFAULT_ACCOUNT_CENTER_TARGET: CodeBirdAccountCenterTarget = 'overview';
 
 function getStore(storage: CodeBirdProviderProps['storage']) {
   if (typeof window === 'undefined') {
@@ -85,6 +88,44 @@ function buildSignInArgs(config: CodeBirdProviderProps, options?: CodeBirdSignIn
 
 function buildIssuedTokenCacheKey(resource?: string, organizationId?: string) {
   return [resource ?? '', organizationId ?? ''].join('::');
+}
+
+function normalizeEndpoint(endpoint: string) {
+  return endpoint.replace(/\/+$/, '');
+}
+
+async function createAccountCenterSSOTicket(input: {
+  endpoint: string;
+  accessToken: string;
+  options?: CodeBirdOpenAccountCenterOptions;
+}) {
+  const response = await fetch(`${normalizeEndpoint(input.endpoint)}/api/account/sso-ticket`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      target: input.options?.target ?? DEFAULT_ACCOUNT_CENTER_TARGET,
+      ...(input.options?.organizationId ? { organization_id: input.options.organizationId } : {}),
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        code?: number;
+        message?: string;
+        result?: {
+          redirect_url?: string;
+        };
+      }
+    | null;
+
+  if (!response.ok || payload?.code !== 0 || !payload?.result?.redirect_url) {
+    throw new Error(payload?.message || 'Failed to create Account Center SSO ticket');
+  }
+
+  return payload.result.redirect_url;
 }
 
 function buildManagerConfigKey(config: CodeBirdProviderProps) {
@@ -387,6 +428,28 @@ export function CodeBirdProvider({
           resource: targetResource,
           cacheKey,
         });
+      },
+      openAccountCenter: async (options) => {
+        const accessToken = userRef.current?.access_token;
+
+        if (!accessToken) {
+          throw new Error('No authenticated user access token available');
+        }
+
+        if (typeof window === 'undefined' || typeof window.open !== 'function') {
+          throw new Error('Window is not available to open Account Center');
+        }
+
+        const redirectUrl = await createAccountCenterSSOTicket({
+          endpoint: config.endpoint,
+          accessToken,
+          options,
+        });
+
+        const opened = window.open(redirectUrl, '_blank', 'noopener,noreferrer');
+        if (!opened) {
+          throw new Error('Account Center tab was blocked by the browser');
+        }
       },
       setCurrentOrganization: (organizationId) => {
         setSelectedOrganizationId(organizationId);

@@ -92,6 +92,36 @@ SDK 会尽量保证：
 - token 已过期或即将过期时自动续期
 - organization token 做同样的有效期与缓存处理
 
+## 打开个人中心
+
+如果第三方系统里的用户已经完成登录，可以直接通过 SDK 打开 CodeBird 账户中心。
+
+SDK 会自动：
+
+- 使用当前用户 access token 调用 `/api/account/sso-ticket`
+- 获取一次性 `redirect_url`
+- 使用浏览器新标签页打开账户中心
+
+```ts
+await auth.openAccountCenter();
+```
+
+也可以指定目标页和组织上下文：
+
+```ts
+await auth.openAccountCenter({
+  target: 'security',
+  organizationId: 'org_xxx',
+});
+```
+
+当前支持的 `target`：
+
+- `overview`
+- `profile`
+- `security`
+- `connections`
+
 ## 本地开发
 
 ```bash

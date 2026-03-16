@@ -19,6 +19,13 @@ export type CodeBirdSignInOptions = {
   scopes?: string[];
 };
 
+export type CodeBirdAccountCenterTarget = 'overview' | 'profile' | 'security' | 'connections';
+
+export type CodeBirdOpenAccountCenterOptions = {
+  target?: CodeBirdAccountCenterTarget;
+  organizationId?: string;
+};
+
 export type OrganizationRoles = Record<string, string[]>;
 
 export type OrganizationContext = {
@@ -66,6 +73,7 @@ export type CodeBirdAuthValue = {
   refresh: () => Promise<void>;
   getAccessToken: (resource?: string) => Promise<string | null>;
   getOrganizationToken: (organizationId?: string, resource?: string) => Promise<string | null>;
+  openAccountCenter: (options?: CodeBirdOpenAccountCenterOptions) => Promise<void>;
   setCurrentOrganization: (organizationId: string | null) => void;
   manager: CodeBirdManager;
 };

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- Added `openAccountCenter()` to open CodeBird Account Center in a new browser tab for already authenticated users.
+- Added support for passing `target` and `organizationId` so third-party apps can route users directly to the intended personal center page and organization context.
+
+### Notes
+
+- This is a backward-compatible feature release.
+- The SDK now encapsulates the `/api/account/sso-ticket` flow and opens the returned `redirect_url` with `window.open(..., '_blank')`.
+
 ## 0.2.3
 
 ### Fixed

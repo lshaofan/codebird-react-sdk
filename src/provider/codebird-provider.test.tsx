@@ -676,4 +676,84 @@ describe('CodeBirdProvider', () => {
     expect(result.current.phoneNumber).toBe('13800000000');
     expect(result.current.avatar).toBe('https://example.com/avatar.png');
   });
+
+  it('opens account center in a new tab after creating an sso ticket', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        code: 0,
+        result: {
+          ticket: 'ticket_1',
+          redirect_url: 'https://auth.example.com/account-center/sso?ticket=ticket_1',
+        },
+      }),
+    } as Response);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(window);
+
+    const { wrapper } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        access_token: 'access_token_1',
+        refresh_token: 'refresh_token_1',
+        profile: {},
+      }),
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await result.current.openAccountCenter({
+      target: 'security',
+      organizationId: 'org_1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://auth.example.com/api/account/sso-ticket',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access_token_1',
+        }),
+        body: JSON.stringify({
+          target: 'security',
+          organization_id: 'org_1',
+        }),
+      }),
+    );
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://auth.example.com/account-center/sso?ticket=ticket_1',
+      '_blank',
+      'noopener,noreferrer',
+    );
+
+    fetchMock.mockRestore();
+    openSpy.mockRestore();
+  });
+
+  it('rejects opening account center when current user has no access token', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected fetch'));
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(window);
+
+    const { wrapper } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        refresh_token: 'refresh_token_1',
+        profile: {},
+      }),
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await expect(result.current.openAccountCenter()).rejects.toThrow('No authenticated user access token available');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+
+    fetchMock.mockRestore();
+    openSpy.mockRestore();
+  });
 });
