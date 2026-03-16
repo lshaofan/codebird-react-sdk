@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CodeBirdProvider } from '../provider/codebird-provider';
+import { useCodeBirdAuth } from './use-codebird-auth';
 import { useSessionContext } from './use-session-context';
 
 function createWrapper(getUser?: () => Promise<unknown>) {
@@ -40,15 +41,19 @@ describe('useSessionContext', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue({
-        user: { id: 'user_1' },
-        application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
-        organization: null,
-        organizations: [],
-        session: {
-          subject: 'user_1',
-          client_id: 'app_1',
-          scopes: ['openid'],
-          current_organization_id: null,
+        code: 0,
+        message: 'success',
+        result: {
+          user: { id: 'user_1' },
+          application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
+          organization: null,
+          organizations: [],
+          session: {
+            subject: 'user_1',
+            client_id: 'app_1',
+            scopes: ['openid'],
+            current_organization_id: null,
+          },
         },
       }),
     } as Response);
@@ -70,29 +75,40 @@ describe('useSessionContext', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue({
-        user: { id: 'user_1' },
-        application: null,
-        organization: null,
-        organizations: [],
-        session: {
-          subject: 'user_1',
-          client_id: null,
-          scopes: [],
-          current_organization_id: null,
+        code: 0,
+        message: 'success',
+        result: {
+          user: { id: 'user_1' },
+          application: null,
+          organization: null,
+          organizations: [],
+          session: {
+            subject: 'user_1',
+            client_id: null,
+            scopes: [],
+            current_organization_id: null,
+          },
         },
       }),
     } as Response);
 
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useSessionContext({ enabled: false }), { wrapper });
+    const { result } = renderHook(
+      () => ({
+        session: useSessionContext({ enabled: false }),
+        auth: useCodeBirdAuth(),
+      }),
+      { wrapper },
+    );
 
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.session.loading).toBe(false);
+      expect(result.current.auth.isLoading).toBe(false);
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
 
-    await result.current.refresh();
+    await result.current.session.refresh();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 

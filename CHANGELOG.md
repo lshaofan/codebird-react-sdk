@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+### Fixed
+
+- Fixed `getSessionContext()` and `useSessionContext()` to correctly parse the standard `code/message/result` envelope returned by `/api/session/context`.
+- Updated tests to validate the real backend response shape instead of a flattened payload.
+
 ## 0.4.0
 
 ### Added

@@ -761,15 +761,19 @@ describe('CodeBirdProvider', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: vi.fn().mockResolvedValue({
-        user: { id: 'user_1' },
-        application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
-        organization: { id: 'org_1', name: 'Org 1', logo_url: null, is_member: true, is_admin: true, roles: ['admin'] },
-        organizations: [{ id: 'org_1', name: 'Org 1', logo_url: null }],
-        session: {
-          subject: 'user_1',
-          client_id: 'app_1',
-          scopes: ['openid', 'profile'],
-          current_organization_id: 'org_1',
+        code: 0,
+        message: 'success',
+        result: {
+          user: { id: 'user_1' },
+          application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
+          organization: { id: 'org_1', name: 'Org 1', logo_url: null, is_member: true, is_admin: true, roles: ['admin'] },
+          organizations: [{ id: 'org_1', name: 'Org 1', logo_url: null }],
+          session: {
+            subject: 'user_1',
+            client_id: 'app_1',
+            scopes: ['openid', 'profile'],
+            current_organization_id: 'org_1',
+          },
         },
       }),
     } as Response);

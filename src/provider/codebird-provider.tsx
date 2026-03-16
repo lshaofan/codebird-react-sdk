@@ -147,12 +147,20 @@ async function fetchSessionContext(input: {
     },
   });
 
-  const payload = (await response.json().catch(() => null)) as CodeBirdSessionContext | null;
-  if (!response.ok || !payload?.user?.id || !payload?.session?.subject) {
-    throw new Error('Failed to load realtime session context');
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        code?: number;
+        message?: string;
+        result?: CodeBirdSessionContext;
+      }
+    | null;
+  const result = payload?.result;
+
+  if (!response.ok || payload?.code !== 0 || !result?.user?.id || !result?.session?.subject) {
+    throw new Error(payload?.message || 'Failed to load realtime session context');
   }
 
-  return payload;
+  return result;
 }
 
 function buildManagerConfigKey(config: CodeBirdProviderProps) {
