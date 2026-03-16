@@ -756,4 +756,76 @@ describe('CodeBirdProvider', () => {
     fetchMock.mockRestore();
     openSpy.mockRestore();
   });
+
+  it('loads realtime session context with current access token', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        user: { id: 'user_1' },
+        application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
+        organization: { id: 'org_1', name: 'Org 1', logo_url: null, is_member: true, is_admin: true, roles: ['admin'] },
+        organizations: [{ id: 'org_1', name: 'Org 1', logo_url: null }],
+        session: {
+          subject: 'user_1',
+          client_id: 'app_1',
+          scopes: ['openid', 'profile'],
+          current_organization_id: 'org_1',
+        },
+      }),
+    } as Response);
+
+    const { wrapper } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        access_token: 'access_token_1',
+        refresh_token: 'refresh_token_1',
+        profile: {},
+      }),
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    const context = await result.current.getSessionContext({
+      organizationId: 'org_1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://auth.example.com/api/session/context?organization_id=org_1',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access_token_1',
+        }),
+      }),
+    );
+    expect(context.application?.id).toBe('app_1');
+    expect(context.organization?.id).toBe('org_1');
+
+    fetchMock.mockRestore();
+  });
+
+  it('rejects loading realtime session context when current user has no access token', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected fetch'));
+
+    const { wrapper } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        refresh_token: 'refresh_token_1',
+        profile: {},
+      }),
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await expect(result.current.getSessionContext()).rejects.toThrow('No authenticated user access token available');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockRestore();
+  });
 });

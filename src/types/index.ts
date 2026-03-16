@@ -26,6 +26,10 @@ export type CodeBirdOpenAccountCenterOptions = {
   organizationId?: string;
 };
 
+export type CodeBirdGetSessionContextOptions = {
+  organizationId?: string;
+};
+
 export type OrganizationRoles = Record<string, string[]>;
 
 export type OrganizationContext = {
@@ -56,6 +60,53 @@ export type CodeBirdManager = {
   signinCallback: (url?: string) => Promise<CodeBirdManagerUser | null | undefined>;
 };
 
+export type CodeBirdSessionContextUser = {
+  id: string;
+  username?: string | null;
+  name?: string | null;
+  email?: string | null;
+  phone_number?: string | null;
+  avatar?: string | null;
+  updated_at?: number;
+};
+
+export type CodeBirdSessionContextApplication = {
+  id: string;
+  name: string;
+  type: string;
+  tenant_id: string;
+};
+
+export type CodeBirdSessionContextOrganization = {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+  is_member: boolean;
+  is_admin: boolean;
+  roles: string[];
+};
+
+export type CodeBirdSessionContextOrganizationSummary = {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+};
+
+export type CodeBirdSessionContextSession = {
+  subject: string;
+  client_id?: string | null;
+  scopes: string[];
+  current_organization_id?: string | null;
+};
+
+export type CodeBirdSessionContext = {
+  user: CodeBirdSessionContextUser;
+  application?: CodeBirdSessionContextApplication | null;
+  organization?: CodeBirdSessionContextOrganization | null;
+  organizations: CodeBirdSessionContextOrganizationSummary[];
+  session: CodeBirdSessionContextSession;
+};
+
 export type CodeBirdProviderProps = CodeBirdProviderConfig & {
   managerFactory?: (config: CodeBirdProviderConfig) => CodeBirdManager;
   children?: React.ReactNode;
@@ -73,6 +124,7 @@ export type CodeBirdAuthValue = {
   refresh: () => Promise<void>;
   getAccessToken: (resource?: string) => Promise<string | null>;
   getOrganizationToken: (organizationId?: string, resource?: string) => Promise<string | null>;
+  getSessionContext: (options?: CodeBirdGetSessionContextOptions) => Promise<CodeBirdSessionContext>;
   openAccountCenter: (options?: CodeBirdOpenAccountCenterOptions) => Promise<void>;
   setCurrentOrganization: (organizationId: string | null) => void;
   manager: CodeBirdManager;

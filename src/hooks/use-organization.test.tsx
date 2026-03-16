@@ -11,10 +11,7 @@ describe('useOrganization', () => {
         refresh_token: 'refresh_token_1',
         profile: {
           organizations: ['org_1', 'org_2'],
-          organization_roles: {
-            org_1: ['admin'],
-            org_2: ['member'],
-          },
+          organization_roles: ['org_1:admin', 'org_2:member'],
           organization_id: 'org_1',
           organization_is_admin: true,
         },
@@ -45,6 +42,7 @@ describe('useOrganization', () => {
 
     expect(result.current.organizationIds).toEqual(['org_1', 'org_2']);
     expect(result.current.organizationRoles.org_1).toEqual(['admin']);
+    expect(result.current.organizationRoles.org_2).toEqual(['member']);
     expect(result.current.isOrganizationAdmin).toBe(true);
   });
 });

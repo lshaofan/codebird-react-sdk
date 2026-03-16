@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- Added `getSessionContext()` for loading realtime user/application/organization context with the current access token.
+- Added `useSessionContext()` for React pages that need realtime context and refresh capability.
+- Added support for opening Account Center through the public SDK API in a new browser tab.
+
+### Changed
+
+- `organization_roles` claims are now parsed using the new string-array format only, for example `["org_123:admin"]`.
+- Legacy object-map claims parsing has been removed from the React SDK.
+- Existing `useCodeBirdUser()` and organization claims helpers remain available, but realtime authorization decisions should prefer session context.
+
 ## 0.3.0
 
 ### Added

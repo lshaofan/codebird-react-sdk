@@ -6,6 +6,7 @@ Code Bird Cloud 的 React SPA 认证接入 SDK。
 
 - 登录、登出、callback 处理
 - 当前用户与组织上下文
+- 实时会话上下文获取
 - 面向目标 `resource` 的 access token 获取
 - organization token 获取
 - 本地 state / storage / token 生命周期托管
@@ -91,6 +92,66 @@ SDK 会尽量保证：
 - `getAccessToken()` 返回的 token 面向当前目标 `resource`
 - token 已过期或即将过期时自动续期
 - organization token 做同样的有效期与缓存处理
+
+## 获取实时会话上下文
+
+如果第三方系统需要拿到数据库实时状态，而不是登录时 claims 快照，可以直接通过 SDK 拉取实时上下文。
+
+适合的场景：
+
+- 管理员刚刚修改了用户资料
+- 用户在使用过程中被移出组织
+- 第三方系统需要按最新组织关系判断权限
+
+命令式调用：
+
+```ts
+const context = await auth.getSessionContext({
+  organizationId: 'org_xxx',
+});
+```
+
+React 页面内也可以直接使用 hook：
+
+```ts
+const { data, loading, error, refresh } = useSessionContext({
+  organizationId: 'org_xxx',
+});
+```
+
+返回结果包含：
+
+- `user`
+- `application`
+- `organization`
+- `organizations`
+- `session`
+
+推荐约定：
+
+- `useCodeBirdUser()` 继续用于轻量展示
+- 敏感权限判断改用 `getSessionContext()` / `useSessionContext()`
+
+## 组织角色 claims 格式
+
+React SDK 当前只支持新版 `organization_roles` 字符串数组格式：
+
+```json
+["org_123:admin", "org_456:member"]
+```
+
+SDK 会将其归一化为：
+
+```ts
+{
+  org_123: ['admin'],
+  org_456: ['member'],
+}
+```
+
+旧版对象格式不再兼容。
+
+组织管理员身份请始终以 `organization_is_admin` 为准，不要再根据 `organization_roles` 中是否包含 `admin` 推断。
 
 ## 打开个人中心
 

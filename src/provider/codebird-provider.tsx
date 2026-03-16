@@ -5,10 +5,12 @@ import { CodeBirdContext } from '../context/codebird-context';
 import type {
   CodeBirdAccountCenterTarget,
   CodeBirdAuthValue,
+  CodeBirdGetSessionContextOptions,
   CodeBirdManager,
   CodeBirdManagerUser,
   CodeBirdOpenAccountCenterOptions,
   CodeBirdProviderProps,
+  CodeBirdSessionContext,
   CodeBirdSignInOptions,
   OrganizationContext,
 } from '../types';
@@ -126,6 +128,31 @@ async function createAccountCenterSSOTicket(input: {
   }
 
   return payload.result.redirect_url;
+}
+
+async function fetchSessionContext(input: {
+  endpoint: string;
+  accessToken: string;
+  options?: CodeBirdGetSessionContextOptions;
+}) {
+  const url = new URL(`${normalizeEndpoint(input.endpoint)}/api/session/context`);
+  if (input.options?.organizationId) {
+    url.searchParams.set('organization_id', input.options.organizationId);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+    },
+  });
+
+  const payload = (await response.json().catch(() => null)) as CodeBirdSessionContext | null;
+  if (!response.ok || !payload?.user?.id || !payload?.session?.subject) {
+    throw new Error('Failed to load realtime session context');
+  }
+
+  return payload;
 }
 
 function buildManagerConfigKey(config: CodeBirdProviderProps) {
@@ -429,8 +456,21 @@ export function CodeBirdProvider({
           cacheKey,
         });
       },
+      getSessionContext: async (options) => {
+        const accessToken = user?.access_token ?? userRef.current?.access_token;
+
+        if (!accessToken) {
+          throw new Error('No authenticated user access token available');
+        }
+
+        return fetchSessionContext({
+          endpoint: config.endpoint,
+          accessToken,
+          options,
+        });
+      },
       openAccountCenter: async (options) => {
-        const accessToken = userRef.current?.access_token;
+        const accessToken = user?.access_token ?? userRef.current?.access_token;
 
         if (!accessToken) {
           throw new Error('No authenticated user access token available');
