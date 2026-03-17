@@ -42,6 +42,9 @@ export type OrganizationContext = {
 export type CodeBirdManagerUser = {
   access_token?: string;
   refresh_token?: string;
+  expires_at?: number;
+  token_type?: string;
+  scope?: string;
   profile?: Record<string, unknown>;
 };
 

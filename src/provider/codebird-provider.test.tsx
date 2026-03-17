@@ -13,23 +13,71 @@ function createUnsignedToken(payload: Record<string, unknown>) {
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.`;
 }
 
+class PersistableUser {
+  access_token?: string;
+  refresh_token?: string;
+  expires_at?: number;
+  token_type?: string;
+  scope?: string;
+  profile?: Record<string, unknown>;
+
+  constructor(input: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_at?: number;
+    token_type?: string;
+    scope?: string;
+    profile?: Record<string, unknown>;
+  }) {
+    this.access_token = input.access_token;
+    this.refresh_token = input.refresh_token;
+    this.expires_at = input.expires_at;
+    this.token_type = input.token_type;
+    this.scope = input.scope;
+    this.profile = input.profile;
+  }
+
+  toStorageString() {
+    return JSON.stringify({
+      access_token: this.access_token,
+      refresh_token: this.refresh_token,
+      expires_at: this.expires_at,
+      token_type: this.token_type,
+      scope: this.scope,
+      profile: this.profile,
+    });
+  }
+}
+
 function createWrapper(overrides?: {
   getUser?: () => Promise<{
     access_token?: string;
     refresh_token?: string;
     profile?: Record<string, unknown>;
   } | null>;
+  onError?: (error: Error) => void;
+  manager?: Partial<{
+    storeUser: () => Promise<void>;
+    removeUser: () => Promise<void>;
+    clearStaleState: () => Promise<void>;
+    signinRedirect: () => Promise<void>;
+    signinSilent: () => Promise<null>;
+    signoutRedirect: () => Promise<void>;
+    signinCallback: () => Promise<null>;
+  }>;
   config?: {
     defaultResource?: string;
   };
 }) {
   const manager = {
     getUser: overrides?.getUser ?? vi.fn().mockResolvedValue(null),
-    storeUser: vi.fn().mockResolvedValue(undefined),
-    signinRedirect: vi.fn().mockResolvedValue(undefined),
-    signinSilent: vi.fn().mockResolvedValue(null),
-    signoutRedirect: vi.fn().mockResolvedValue(undefined),
-    signinCallback: vi.fn().mockResolvedValue(null),
+    storeUser: overrides?.manager?.storeUser ?? vi.fn().mockResolvedValue(undefined),
+    removeUser: overrides?.manager?.removeUser,
+    clearStaleState: overrides?.manager?.clearStaleState,
+    signinRedirect: overrides?.manager?.signinRedirect ?? vi.fn().mockResolvedValue(undefined),
+    signinSilent: overrides?.manager?.signinSilent ?? vi.fn().mockResolvedValue(null),
+    signoutRedirect: overrides?.manager?.signoutRedirect ?? vi.fn().mockResolvedValue(undefined),
+    signinCallback: overrides?.manager?.signinCallback ?? vi.fn().mockResolvedValue(null),
   };
 
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -39,6 +87,7 @@ function createWrapper(overrides?: {
       redirectUri="http://localhost:5173/callback"
       postLogoutRedirectUri="http://localhost:5173"
       defaultResource={overrides?.config?.defaultResource}
+      onError={overrides?.onError}
       managerFactory={() => manager}
     >
       {children}
@@ -358,6 +407,142 @@ describe('CodeBirdProvider', () => {
     expect(token).toBe(refreshedToken);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(manager.storeUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access_token: refreshedToken,
+        refresh_token: 'refresh_token_2',
+      }),
+    );
+
+    fetchMock.mockRestore();
+  });
+
+  it('clears local auth state when refresh token is invalid during access token refresh', async () => {
+    const expiredToken = createUnsignedToken({
+      sub: 'user_1',
+      aud: ['https://api.example.com'],
+      exp: Math.floor(Date.now() / 1000) - 60,
+    });
+    const onError = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: vi.fn().mockResolvedValue({
+        error: 'invalid_grant',
+        error_description: 'Refresh token expired',
+      }),
+    } as Response);
+
+    const removeUser = vi.fn().mockResolvedValue(undefined);
+    const clearStaleState = vi.fn().mockResolvedValue(undefined);
+
+    const { wrapper, manager } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        access_token: expiredToken,
+        refresh_token: 'refresh_token_invalid_grant_case',
+        profile: {},
+      }),
+      onError,
+      manager: {
+        removeUser,
+        clearStaleState,
+      },
+      config: {
+        defaultResource: 'https://api.example.com',
+      },
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await expect(result.current.getAccessToken('https://api.example.com')).resolves.toBeNull();
+
+    await waitFor(() => {
+      expect(result.current.isAuthenticated).toBe(false);
+    });
+
+    expect(result.current.user).toBeNull();
+    expect(removeUser).toHaveBeenCalledTimes(1);
+    expect(clearStaleState).toHaveBeenCalledTimes(1);
+    expect(manager.storeUser).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Failed to refresh access token. Cleared local auth state and continued unauthenticated.',
+      }),
+    );
+
+    fetchMock.mockRestore();
+  });
+
+  it('preserves user storage methods when persisting refreshed tokens', async () => {
+    const expiredToken = createUnsignedToken({
+      sub: 'user_1',
+      aud: ['https://api.example.com'],
+      exp: Math.floor(Date.now() / 1000) - 60,
+    });
+    const refreshedToken = createUnsignedToken({
+      sub: 'user_1',
+      aud: ['https://api.example.com'],
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        access_token: refreshedToken,
+        refresh_token: 'refresh_token_2',
+        expires_in: 5,
+        token_type: 'bearer',
+        scope: 'openid profile',
+      }),
+    } as Response);
+
+    const persistedStoragePayloads: string[] = [];
+    const initialUser = new PersistableUser({
+      access_token: expiredToken,
+      refresh_token: 'refresh_token_persistable_case',
+      expires_at: Math.floor(Date.now() / 1000) - 60,
+      token_type: 'bearer',
+      scope: 'openid profile',
+      profile: {},
+    });
+
+    const manager = {
+      getUser: vi.fn().mockResolvedValue(initialUser),
+      storeUser: vi.fn().mockImplementation(async (user: { toStorageString: () => string }) => {
+        persistedStoragePayloads.push(user.toStorageString());
+      }),
+      signinRedirect: vi.fn().mockResolvedValue(undefined),
+      signinSilent: vi.fn().mockResolvedValue(null),
+      signoutRedirect: vi.fn().mockResolvedValue(undefined),
+      signinCallback: vi.fn().mockResolvedValue(null),
+    };
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <CodeBirdProvider
+        endpoint="https://auth.example.com"
+        appId="app_1"
+        redirectUri="http://localhost:5173/callback"
+        postLogoutRedirectUri="http://localhost:5173"
+        defaultResource="https://api.example.com"
+        managerFactory={() => manager}
+      >
+        {children}
+      </CodeBirdProvider>
+    );
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await expect(result.current.getAccessToken('https://api.example.com')).resolves.toBe(refreshedToken);
+    expect(manager.storeUser).toHaveBeenCalledTimes(1);
+    expect(persistedStoragePayloads).toHaveLength(1);
+    expect(JSON.parse(persistedStoragePayloads[0] || '{}')).toEqual(
       expect.objectContaining({
         access_token: refreshedToken,
         refresh_token: 'refresh_token_2',
@@ -843,6 +1028,93 @@ describe('CodeBirdProvider', () => {
     fetchMock.mockRestore();
   });
 
+  it('refreshes access token before loading realtime session context when current token is expired', async () => {
+    const expiredToken = createUnsignedToken({
+      sub: 'user_1',
+      exp: Math.floor(Date.now() / 1000) - 60,
+    });
+    const refreshedToken = createUnsignedToken({
+      sub: 'user_1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          access_token: refreshedToken,
+          refresh_token: 'refresh_token_2',
+          expires_in: 5,
+          token_type: 'Bearer',
+          scope: 'openid profile',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          code: 0,
+          message: 'success',
+          result: {
+            tenant: { id: 'default', slug: 'default', name: '默认租户' },
+            user: { id: 'user_1' },
+            application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
+            organization: null,
+            organizations: [],
+            session: {
+              subject: 'user_1',
+              client_id: 'app_1',
+              scopes: ['openid'],
+              current_organization_id: null,
+            },
+          },
+        }),
+      } as Response);
+
+    const { wrapper, manager } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        access_token: expiredToken,
+        refresh_token: 'refresh_token_context_expired_case',
+        profile: {},
+      }),
+      config: {
+        defaultResource: 'https://api.example.com',
+      },
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    const context = await result.current.getSessionContext();
+
+    expect(context.user.id).toBe('user_1');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://auth.example.com/oidc/token');
+    expect(fetchMock.mock.calls[0]?.[1]?.body?.toString()).toContain('resource=https%3A%2F%2Fapi.example.com');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://auth.example.com/api/session/context');
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${refreshedToken}`,
+        }),
+      }),
+    );
+    expect(manager.storeUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access_token: refreshedToken,
+        refresh_token: 'refresh_token_2',
+        expires_at: expect.any(Number),
+        token_type: 'Bearer',
+        scope: 'openid profile',
+      }),
+    );
+
+    fetchMock.mockRestore();
+  });
+
   it('rejects loading realtime session context when current user has no access token', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected fetch'));
 
@@ -861,6 +1133,131 @@ describe('CodeBirdProvider', () => {
 
     await expect(result.current.getSessionContext()).rejects.toThrow('No authenticated user access token available');
     expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockRestore();
+  });
+
+  it('refreshes access token before opening account center when current token is expired', async () => {
+    const expiredToken = createUnsignedToken({
+      sub: 'user_1',
+      exp: Math.floor(Date.now() / 1000) - 60,
+    });
+    const refreshedToken = createUnsignedToken({
+      sub: 'user_1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          access_token: refreshedToken,
+          refresh_token: 'refresh_token_2',
+          expires_in: 5,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          code: 0,
+          result: {
+            ticket: 'ticket_1',
+            redirect_url: 'https://auth.example.com/t/default/account-center/sso?ticket=ticket_1',
+          },
+        }),
+      } as Response);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(window);
+
+    const { wrapper, manager } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        access_token: expiredToken,
+        refresh_token: 'refresh_token_account_center_expired_case',
+        profile: {},
+      }),
+      config: {
+        defaultResource: 'https://api.example.com',
+      },
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await result.current.openAccountCenter();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://auth.example.com/oidc/token');
+    expect(fetchMock.mock.calls[0]?.[1]?.body?.toString()).toContain('resource=https%3A%2F%2Fapi.example.com');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://auth.example.com/api/account/sso-ticket');
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${refreshedToken}`,
+        }),
+      }),
+    );
+    expect(manager.storeUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access_token: refreshedToken,
+        refresh_token: 'refresh_token_2',
+      }),
+    );
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://auth.example.com/t/default/account-center/sso?ticket=ticket_1',
+      '_blank',
+      'noopener,noreferrer',
+    );
+
+    fetchMock.mockRestore();
+    openSpy.mockRestore();
+  });
+
+  it('refreshes expired token when getAccessToken is called without a default resource', async () => {
+    const expiredToken = createUnsignedToken({
+      sub: 'user_1',
+      exp: Math.floor(Date.now() / 1000) - 60,
+    });
+    const refreshedToken = createUnsignedToken({
+      sub: 'user_1',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        access_token: refreshedToken,
+        refresh_token: 'refresh_token_2',
+      }),
+    } as Response);
+
+    const { wrapper, manager } = createWrapper({
+      getUser: vi.fn().mockResolvedValue({
+        access_token: expiredToken,
+        refresh_token: 'refresh_token_no_default_resource_case',
+        profile: {},
+      }),
+    });
+
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    const token = await result.current.getAccessToken();
+
+    expect(token).toBe(refreshedToken);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://auth.example.com/oidc/token');
+    expect(manager.storeUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access_token: refreshedToken,
+        refresh_token: 'refresh_token_2',
+      }),
+    );
 
     fetchMock.mockRestore();
   });

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.3
+
+### Added
+
+- Added `CodeBirdAuthGuard` as the official lightweight auth guard for React SPA integrations.
+- Added tests for short-lived JWT usability and auth guard behavior under `StrictMode`.
+
+### Fixed
+
+- Fixed short-lived access token handling by switching from a fixed expiry skew to a dynamic skew derived from the token lifetime.
+- Fixed refresh flows for realtime session context and Account Center so refresh requests keep the configured `resource`.
+- Fixed token persistence after refresh to update `expires_at`, `token_type`, and `scope` together with the new access token.
+- Fixed refresh token expiry handling so `invalid_grant` clears local auth state and returns the SDK to an unauthenticated state.
+
 ## 0.4.2
 
 ### Added

@@ -16,9 +16,11 @@ function decodeBase64Url(value: string) {
 type JwtPayload = {
   aud?: string | string[];
   exp?: number;
+  iat?: number;
 };
 
-const DEFAULT_EXPIRY_SKEW_MS = 60_000;
+const MAX_EXPIRY_SKEW_MS = 60_000;
+const MIN_EXPIRY_SKEW_MS = 1_000;
 
 function parseJwtPayload(token: string): JwtPayload | null {
   const segments = token.split('.');
@@ -52,7 +54,20 @@ export function tokenHasAudience(token: string, audience: string) {
   return false;
 }
 
-export function tokenCanBeUsed(token: string, audience?: string, expirySkewMs = DEFAULT_EXPIRY_SKEW_MS) {
+function resolveExpirySkewMs(payload: JwtPayload, expirySkewMs?: number) {
+  if (typeof expirySkewMs === 'number') {
+    return expirySkewMs;
+  }
+
+  if (typeof payload.exp !== 'number' || typeof payload.iat !== 'number' || payload.exp <= payload.iat) {
+    return MIN_EXPIRY_SKEW_MS;
+  }
+
+  const lifetimeMs = (payload.exp - payload.iat) * 1000;
+  return Math.min(MAX_EXPIRY_SKEW_MS, Math.max(MIN_EXPIRY_SKEW_MS, Math.floor(lifetimeMs / 5)));
+}
+
+export function tokenCanBeUsed(token: string, audience?: string, expirySkewMs?: number) {
   const payload = parseJwtPayload(token);
   if (!payload) {
     return false;
@@ -66,5 +81,5 @@ export function tokenCanBeUsed(token: string, audience?: string, expirySkewMs = 
     return true;
   }
 
-  return payload.exp * 1000 > Date.now() + expirySkewMs;
+  return payload.exp * 1000 > Date.now() + resolveExpirySkewMs(payload, expirySkewMs);
 }

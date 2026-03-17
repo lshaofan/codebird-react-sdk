@@ -17,7 +17,7 @@ import type {
 import { validateConfig } from '../utils/config';
 import { parseOrganizationClaims } from '../utils/claims';
 import { tokenCanBeUsed } from '../utils/jwt';
-import { requestToken } from '../utils/token';
+import { CodeBirdTokenRequestError, requestToken } from '../utils/token';
 
 const DEFAULT_SCOPES = ['openid', 'profile', 'email', 'offline_access'];
 const DEFAULT_ACCOUNT_CENTER_TARGET: CodeBirdAccountCenterTarget = 'overview';
@@ -198,6 +198,14 @@ function buildRecoveredAuthStateError(cause: Error) {
   return recoveryError;
 }
 
+function buildRecoveredRefreshAuthStateError(cause: Error) {
+  const recoveryError = new Error(
+    'Failed to refresh access token. Cleared local auth state and continued unauthenticated.',
+  ) as Error & { cause?: unknown };
+  recoveryError.cause = cause;
+  return recoveryError;
+}
+
 async function recoverLocalAuthState(manager: CodeBirdManager) {
   let recovered = false;
 
@@ -212,6 +220,29 @@ async function recoverLocalAuthState(manager: CodeBirdManager) {
   }
 
   return recovered;
+}
+
+function currentTokenCanBeUsed(token?: string, audience?: string) {
+  if (!token) {
+    return false;
+  }
+
+  if (!token.includes('.')) {
+    return !audience;
+  }
+
+  return tokenCanBeUsed(token, audience);
+}
+
+function cloneUserPreservingPrototype<T extends object>(user: T): T {
+  return Object.assign(
+    Object.create(Object.getPrototypeOf(user) ?? Object.prototype),
+    user,
+  ) as T;
+}
+
+function shouldClearAuthStateForTokenRefreshFailure(error: unknown) {
+  return error instanceof CodeBirdTokenRequestError && error.code === 'invalid_grant';
 }
 
 export function CodeBirdProvider({
@@ -263,6 +294,7 @@ export function CodeBirdProvider({
           return;
         }
 
+        userRef.current = loadedUser;
         setUser(loadedUser);
       } catch (cause) {
         if (!isMounted) {
@@ -314,10 +346,6 @@ export function CodeBirdProvider({
     };
   }, [manager]);
 
-  useEffect(() => {
-    userRef.current = user;
-  }, [user]);
-
   const parsedOrganization = useMemo(
     () => parseOrganizationClaims(user?.profile ?? {}),
     [user],
@@ -329,25 +357,68 @@ export function CodeBirdProvider({
     selectedOrganizationId,
   );
 
-  async function persistTokens(nextAccessToken?: string, nextRefreshToken?: string) {
+  async function clearLocalAuthStateAfterRefreshFailure(cause: Error) {
+    userRef.current = null;
+    issuedTokenCacheRef.current.clear();
+    inFlightIssuedTokenRequestsRef.current.clear();
+    setUser(null);
+    setError(null);
+
+    const nextError = buildRecoveredRefreshAuthStateError(cause);
+
+    try {
+      await recoverLocalAuthState(manager);
+      config.onError?.(nextError);
+      return;
+    } catch (recoveryCause) {
+      const recoveryError =
+        recoveryCause instanceof Error ? recoveryCause : new Error('Failed to recover local auth state');
+      const combinedError = new Error(
+        `Failed to clear local auth state after refresh token failure: ${recoveryError.message}`,
+      ) as Error & { cause?: unknown };
+      combinedError.cause = cause;
+      setError(combinedError);
+      config.onError?.(combinedError);
+    }
+  }
+
+  async function persistTokens(input: {
+    accessToken?: string;
+    refreshToken?: string;
+    expiresIn?: number;
+    tokenType?: string;
+    scope?: string;
+  }) {
     if (!userRef.current) {
       return;
     }
 
     const hasAccessTokenChanged =
-      typeof nextAccessToken === 'string' && nextAccessToken !== userRef.current.access_token;
+      typeof input.accessToken === 'string' && input.accessToken !== userRef.current.access_token;
     const hasRefreshTokenChanged =
-      typeof nextRefreshToken === 'string' && nextRefreshToken !== userRef.current.refresh_token;
+      typeof input.refreshToken === 'string' && input.refreshToken !== userRef.current.refresh_token;
+    const nextExpiresAt =
+      typeof input.expiresIn === 'number' && Number.isFinite(input.expiresIn)
+        ? Math.floor(Date.now() / 1000) + Math.max(0, Math.floor(input.expiresIn))
+        : undefined;
+    const hasExpiryChanged =
+      typeof nextExpiresAt === 'number' && nextExpiresAt !== userRef.current.expires_at;
+    const hasTokenTypeChanged =
+      typeof input.tokenType === 'string' && input.tokenType !== userRef.current.token_type;
+    const hasScopeChanged = typeof input.scope === 'string' && input.scope !== userRef.current.scope;
 
-    if (!hasAccessTokenChanged && !hasRefreshTokenChanged) {
+    if (!hasAccessTokenChanged && !hasRefreshTokenChanged && !hasExpiryChanged && !hasTokenTypeChanged && !hasScopeChanged) {
       return;
     }
 
-    const nextUser = {
-      ...userRef.current,
-      ...(hasAccessTokenChanged ? { access_token: nextAccessToken } : {}),
-      ...(hasRefreshTokenChanged ? { refresh_token: nextRefreshToken } : {}),
-    };
+    const nextUser = Object.assign(
+      cloneUserPreservingPrototype(userRef.current),
+      ...(hasAccessTokenChanged ? [{ access_token: input.accessToken }] : []),
+      ...(hasRefreshTokenChanged ? [{ refresh_token: input.refreshToken }] : []),
+      ...(hasExpiryChanged ? [{ expires_at: nextExpiresAt }] : []),
+      ...(hasTokenTypeChanged ? [{ token_type: input.tokenType }] : []),
+      ...(hasScopeChanged ? [{ scope: input.scope }] : []),
+    );
 
     userRef.current = nextUser;
     setUser(nextUser);
@@ -359,7 +430,7 @@ export function CodeBirdProvider({
     organizationId?: string;
     persistAccessToken?: boolean;
     cacheKey?: string;
-  }) {
+  }): Promise<string | null> {
     const requestKey = input.cacheKey ?? buildIssuedTokenCacheKey(input.resource, input.organizationId);
     const existingRequest = inFlightIssuedTokenRequestsRef.current.get(requestKey);
     if (existingRequest) {
@@ -367,36 +438,54 @@ export function CodeBirdProvider({
     }
 
     const pending = tokenRequestQueueRef.current.then(async () => {
-      if (input.resource && input.persistAccessToken) {
-        const currentAccessToken = userRef.current?.access_token ?? null;
-        if (currentAccessToken && tokenCanBeUsed(currentAccessToken, input.resource)) {
-          return currentAccessToken;
-        }
+      if (input.persistAccessToken) {
+        const currentAccessToken = userRef.current?.access_token ?? user?.access_token ?? null;
+        if (currentTokenCanBeUsed(currentAccessToken ?? undefined, input.resource)) {
+        return currentAccessToken ?? null;
+      }
       }
 
       if (requestKey) {
         const cachedToken = issuedTokenCacheRef.current.get(requestKey);
-        if (cachedToken && tokenCanBeUsed(cachedToken, input.resource)) {
-          return cachedToken;
+        if (currentTokenCanBeUsed(cachedToken, input.resource)) {
+          return cachedToken ?? null;
         }
       }
 
-      const currentUser = userRef.current;
+      const currentUser = userRef.current ?? user;
       const refreshToken = currentUser?.refresh_token;
 
       if (!refreshToken) {
         return null;
       }
 
-      const payload = await requestToken({
-        endpoint: config.endpoint,
-        appId: config.appId,
-        refreshToken,
-        organizationId: input.organizationId,
-        resource: input.resource,
-      });
+      let payload;
+      try {
+        payload = await requestToken({
+          endpoint: config.endpoint,
+          appId: config.appId,
+          refreshToken,
+          organizationId: input.organizationId,
+          resource: input.resource,
+        });
+      } catch (cause) {
+        if (shouldClearAuthStateForTokenRefreshFailure(cause)) {
+          await clearLocalAuthStateAfterRefreshFailure(
+            cause instanceof Error ? cause : new Error('Failed to refresh token'),
+          );
+          return null;
+        }
 
-      await persistTokens(input.persistAccessToken ? payload.access_token : undefined, payload.refresh_token);
+        throw cause;
+      }
+
+      await persistTokens({
+        accessToken: input.persistAccessToken ? payload.access_token : undefined,
+        refreshToken: payload.refresh_token,
+        expiresIn: payload.expires_in,
+        tokenType: payload.token_type,
+        scope: payload.scope,
+      });
       if (input.cacheKey && payload.access_token) {
         issuedTokenCacheRef.current.set(input.cacheKey, payload.access_token);
       }
@@ -412,7 +501,26 @@ export function CodeBirdProvider({
 
     return pending.finally(() => {
       inFlightIssuedTokenRequestsRef.current.delete(requestKey);
-    });
+    }) ?? null;
+  }
+
+  async function ensureFreshAccessToken(resource?: string): Promise<string | null> {
+    const currentAccessToken = userRef.current?.access_token ?? user?.access_token ?? null;
+
+    if (!currentAccessToken) {
+      return null;
+    }
+
+    if (currentTokenCanBeUsed(currentAccessToken ?? undefined, resource)) {
+      return currentAccessToken ?? null;
+    }
+
+    return (
+      (await queueTokenRequest({
+        resource,
+        persistAccessToken: true,
+      })) ?? null
+    );
   }
 
   const value = useMemo<CodeBirdAuthValue>(
@@ -440,20 +548,7 @@ export function CodeBirdProvider({
       },
       getAccessToken: async (resource) => {
         const targetResource = resource ?? config.defaultResource;
-        const currentAccessToken = userRef.current?.access_token ?? null;
-
-        if (!targetResource) {
-          return currentAccessToken;
-        }
-
-        if (currentAccessToken && tokenCanBeUsed(currentAccessToken, targetResource)) {
-          return currentAccessToken;
-        }
-
-        return queueTokenRequest({
-          resource: targetResource,
-          persistAccessToken: targetResource === config.defaultResource,
-        });
+        return ensureFreshAccessToken(targetResource);
       },
       getOrganizationToken: async (organizationId, resource) => {
         const nextOrganizationId = organizationId ?? currentOrganizationId;
@@ -481,7 +576,7 @@ export function CodeBirdProvider({
         });
       },
       getSessionContext: async (options) => {
-        const accessToken = user?.access_token ?? userRef.current?.access_token;
+        const accessToken = await ensureFreshAccessToken(config.defaultResource);
 
         if (!accessToken) {
           throw new Error('No authenticated user access token available');
@@ -494,7 +589,7 @@ export function CodeBirdProvider({
         });
       },
       openAccountCenter: async (options) => {
-        const accessToken = user?.access_token ?? userRef.current?.access_token;
+        const accessToken = await ensureFreshAccessToken(config.defaultResource);
 
         if (!accessToken) {
           throw new Error('No authenticated user access token available');

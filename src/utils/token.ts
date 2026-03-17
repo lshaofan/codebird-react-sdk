@@ -29,6 +29,25 @@ export type TokenResponse = {
   scope?: string;
 };
 
+export class CodeBirdTokenRequestError extends Error {
+  code?: string;
+  description?: string;
+  status: number;
+
+  constructor(input: {
+    message: string;
+    status: number;
+    code?: string;
+    description?: string;
+  }) {
+    super(input.message);
+    this.name = 'CodeBirdTokenRequestError';
+    this.status = input.status;
+    this.code = input.code;
+    this.description = input.description;
+  }
+}
+
 const RECENT_TOKEN_RESPONSE_TTL_MS = 2_000;
 const inFlightTokenRequests = new Map<string, Promise<TokenResponse>>();
 const recentTokenResponses = new Map<string, { payload: TokenResponse; expiresAt: number }>();
@@ -75,9 +94,13 @@ export async function requestToken(input: RequestTokenInput) {
 
   if (!response.ok) {
     let message = 'Failed to refresh token';
+    let code: string | undefined;
+    let description: string | undefined;
 
     try {
       const payload = (await response.json()) as { error_description?: string; error?: string };
+      code = payload.error;
+      description = payload.error_description;
       if (payload.error_description) {
         message = payload.error_description;
       } else if (payload.error) {
@@ -87,7 +110,12 @@ export async function requestToken(input: RequestTokenInput) {
       // Ignore non-JSON error payloads and keep the generic message.
     }
 
-    throw new Error(message);
+    throw new CodeBirdTokenRequestError({
+      message,
+      status: response.status,
+      code,
+      description,
+    });
   }
 
     const payload = (await response.json()) as TokenResponse;

@@ -160,6 +160,42 @@ const forgotPasswordUrl = auth.buildTenantForgotPasswordUrl('tenant-demo');
 - 这组 helper 只用于终端用户入口地址构造
 - 账户中心仍然应优先使用 `openAccountCenter()`，不要自己拼 `/account-center/...`
 
+## 官方认证守卫
+
+如果第三方系统希望尽量少写一层自己的认证守卫逻辑，可以直接使用 SDK 提供的 `CodeBirdAuthGuard`。
+
+它只负责：
+
+- 等待 SDK 完成登录态恢复
+- 已登录时渲染受保护内容
+- 未登录时执行你提供的未认证处理逻辑
+
+它不会绑定任何特定路由库，也不会默认替你决定跳转方式。
+
+```tsx
+import { CodeBirdAuthGuard, useCodeBirdAuth } from '@codebird/react';
+
+function ProtectedApp() {
+  const auth = useCodeBirdAuth();
+
+  return (
+    <CodeBirdAuthGuard
+      loadingFallback={<div>Loading...</div>}
+      unauthenticatedFallback={<div>Redirecting...</div>}
+      onUnauthenticated={() => auth.signIn()}
+    >
+      <App />
+    </CodeBirdAuthGuard>
+  );
+}
+```
+
+建议：
+
+- 不要在第三方项目里再自己根据 `expires_at` 判断是否跳登录页
+- 不要再自行监听 token 过期事件后立刻清本地登录态
+- 守卫只基于 SDK 的 `isLoading` / `isAuthenticated` 工作
+
 ## 组织角色 claims 格式
 
 React SDK 当前只支持新版 `organization_roles` 字符串数组格式：
