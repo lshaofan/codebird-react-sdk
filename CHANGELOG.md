@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2
+
+### Added
+
+- Added tenant-scoped end-user entry helpers: `buildTenantSignInUrl()`, `buildTenantRegisterUrl()`, and `buildTenantForgotPasswordUrl()`.
+- Added `tenant { id, slug, name }` to realtime session context types so SDK consumers can resolve tenant-scoped routes explicitly.
+
+### Changed
+
+- Account Center SDK docs now standardize on tenant-scoped routes and keep `openAccountCenter()` as the recommended entry point.
+
 ## 0.4.1
 
 ### Fixed

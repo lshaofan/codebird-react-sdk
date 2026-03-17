@@ -77,6 +77,12 @@ export type CodeBirdSessionContextApplication = {
   tenant_id: string;
 };
 
+export type CodeBirdSessionContextTenant = {
+  id: string;
+  slug: string;
+  name: string;
+};
+
 export type CodeBirdSessionContextOrganization = {
   id: string;
   name: string;
@@ -100,6 +106,7 @@ export type CodeBirdSessionContextSession = {
 };
 
 export type CodeBirdSessionContext = {
+  tenant?: CodeBirdSessionContextTenant | null;
   user: CodeBirdSessionContextUser;
   application?: CodeBirdSessionContextApplication | null;
   organization?: CodeBirdSessionContextOrganization | null;
@@ -119,6 +126,9 @@ export type CodeBirdAuthValue = {
   error: Error | null;
   organization: OrganizationContext;
   currentOrganizationId: string | null;
+  buildTenantSignInUrl: (tenantSlug: string) => string;
+  buildTenantRegisterUrl: (tenantSlug: string) => string;
+  buildTenantForgotPasswordUrl: (tenantSlug: string) => string;
   signIn: (options?: CodeBirdSignInOptions) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;

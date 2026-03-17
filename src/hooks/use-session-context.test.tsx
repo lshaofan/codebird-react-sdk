@@ -44,6 +44,7 @@ describe('useSessionContext', () => {
         code: 0,
         message: 'success',
         result: {
+          tenant: { id: 'default', slug: 'default', name: '默认租户' },
           user: { id: 'user_1' },
           application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
           organization: null,
@@ -67,6 +68,7 @@ describe('useSessionContext', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.current.data?.user.id).toBe('user_1');
+    expect(result.current.data?.tenant?.slug).toBe('default');
 
     fetchMock.mockRestore();
   });
@@ -78,6 +80,7 @@ describe('useSessionContext', () => {
         code: 0,
         message: 'success',
         result: {
+          tenant: { id: 'default', slug: 'default', name: '默认租户' },
           user: { id: 'user_1' },
           application: null,
           organization: null,

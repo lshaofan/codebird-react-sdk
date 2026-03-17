@@ -121,16 +121,44 @@ const { data, loading, error, refresh } = useSessionContext({
 
 返回结果包含：
 
+- `tenant`
 - `user`
 - `application`
 - `organization`
 - `organizations`
 - `session`
 
+其中 `tenant.slug` 是终端用户租户化入口的标准标识，可用于识别：
+
+- `/t/{tenant.slug}/sign-in`
+- `/t/{tenant.slug}/account-center/...`
+
 推荐约定：
 
 - `useCodeBirdUser()` 继续用于轻量展示
 - 敏感权限判断改用 `getSessionContext()` / `useSessionContext()`
+
+## 构造租户化终端用户入口
+
+当第三方系统需要主动跳转到认证中心终端用户页面时，不要再手工拼裸路径。可以直接使用 SDK 提供的租户化 URL helper：
+
+```ts
+const signInUrl = auth.buildTenantSignInUrl('tenant-demo');
+const registerUrl = auth.buildTenantRegisterUrl('tenant-demo');
+const forgotPasswordUrl = auth.buildTenantForgotPasswordUrl('tenant-demo');
+```
+
+对应结果分别是：
+
+- `/t/{tenantSlug}/sign-in`
+- `/t/{tenantSlug}/register`
+- `/t/{tenantSlug}/forgot-password`
+
+注意：
+
+- `tenantSlug` 不能为空
+- 这组 helper 只用于终端用户入口地址构造
+- 账户中心仍然应优先使用 `openAccountCenter()`，不要自己拼 `/account-center/...`
 
 ## 组织角色 claims 格式
 
@@ -162,6 +190,12 @@ SDK 会自动：
 - 使用当前用户 access token 调用 `/api/account/sso-ticket`
 - 获取一次性 `redirect_url`
 - 使用浏览器新标签页打开账户中心
+
+注意：
+
+- 账户中心最终落点由后端返回
+- 当前标准落点是租户化路径，如 `/t/{tenant.slug}/account-center/...`
+- 不要再在第三方项目中手工拼裸 `/account-center/...`
 
 ```ts
 await auth.openAccountCenter();

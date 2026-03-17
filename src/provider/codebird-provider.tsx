@@ -96,6 +96,18 @@ function normalizeEndpoint(endpoint: string) {
   return endpoint.replace(/\/+$/, '');
 }
 
+function buildTenantEntryUrl(endpoint: string, tenantSlug: string, route: 'sign-in' | 'register' | 'forgot-password') {
+  const normalizedTenantSlug = tenantSlug.trim();
+  if (!normalizedTenantSlug) {
+    throw new Error('tenantSlug is required');
+  }
+
+  const url = new URL(normalizeEndpoint(endpoint));
+  const basePath = url.pathname.replace(/\/+$/, '');
+  url.pathname = `${basePath}/t/${encodeURIComponent(normalizedTenantSlug)}/${route}`.replace(/\/{2,}/g, '/');
+  return url.toString();
+}
+
 async function createAccountCenterSSOTicket(input: {
   endpoint: string;
   accessToken: string;
@@ -411,6 +423,10 @@ export function CodeBirdProvider({
       error,
       organization: parsedOrganization,
       currentOrganizationId,
+      buildTenantSignInUrl: (tenantSlug) => buildTenantEntryUrl(config.endpoint, tenantSlug, 'sign-in'),
+      buildTenantRegisterUrl: (tenantSlug) => buildTenantEntryUrl(config.endpoint, tenantSlug, 'register'),
+      buildTenantForgotPasswordUrl: (tenantSlug) =>
+        buildTenantEntryUrl(config.endpoint, tenantSlug, 'forgot-password'),
       signIn: async (options) => {
         await manager.signinRedirect(buildSignInArgs(config, options));
       },

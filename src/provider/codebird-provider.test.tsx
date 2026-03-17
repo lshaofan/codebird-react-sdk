@@ -648,6 +648,36 @@ describe('CodeBirdProvider', () => {
     });
   });
 
+  it('builds tenant-scoped end-user entry urls', async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.buildTenantSignInUrl('tenant-demo')).toBe(
+      'https://auth.example.com/t/tenant-demo/sign-in',
+    );
+    expect(result.current.buildTenantRegisterUrl('tenant-demo')).toBe(
+      'https://auth.example.com/t/tenant-demo/register',
+    );
+    expect(result.current.buildTenantForgotPasswordUrl('tenant-demo')).toBe(
+      'https://auth.example.com/t/tenant-demo/forgot-password',
+    );
+  });
+
+  it('rejects building tenant-scoped urls when tenant slug is empty', async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCodeBirdAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(() => result.current.buildTenantSignInUrl('   ')).toThrow('tenantSlug is required');
+  });
+
   it('maps user profile into stable sdk user shape', async () => {
     const { wrapper } = createWrapper({
       getUser: vi.fn().mockResolvedValue({
@@ -684,7 +714,7 @@ describe('CodeBirdProvider', () => {
         code: 0,
         result: {
           ticket: 'ticket_1',
-          redirect_url: 'https://auth.example.com/account-center/sso?ticket=ticket_1',
+          redirect_url: 'https://auth.example.com/t/default/account-center/sso?ticket=ticket_1',
         },
       }),
     } as Response);
@@ -723,7 +753,7 @@ describe('CodeBirdProvider', () => {
       }),
     );
     expect(openSpy).toHaveBeenCalledWith(
-      'https://auth.example.com/account-center/sso?ticket=ticket_1',
+      'https://auth.example.com/t/default/account-center/sso?ticket=ticket_1',
       '_blank',
       'noopener,noreferrer',
     );
@@ -764,6 +794,7 @@ describe('CodeBirdProvider', () => {
         code: 0,
         message: 'success',
         result: {
+          tenant: { id: 'default', slug: 'default', name: '默认租户' },
           user: { id: 'user_1' },
           application: { id: 'app_1', name: 'Demo', type: 'SPA', tenant_id: 'default' },
           organization: { id: 'org_1', name: 'Org 1', logo_url: null, is_member: true, is_admin: true, roles: ['admin'] },
@@ -806,6 +837,7 @@ describe('CodeBirdProvider', () => {
       }),
     );
     expect(context.application?.id).toBe('app_1');
+    expect(context.tenant?.slug).toBe('default');
     expect(context.organization?.id).toBe('org_1');
 
     fetchMock.mockRestore();
